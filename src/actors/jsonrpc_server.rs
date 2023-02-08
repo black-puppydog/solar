@@ -88,6 +88,31 @@ pub async fn actor(server_id: OwnedIdentity, server_addr: String) -> Result<()> 
         })
     });
 
+    // Retrieve the last message we have of a feed
+    // Returns the message as a KVT.
+    io.add_sync_method("getLatest", move |params: Params| {
+        task::block_on(async {
+            // Parse the parameter containing the feed id
+            let feed_id: PubKey = params.parse()?;
+
+            // Open the primary KV database for reading.
+            let db = KV_STORAGE.read().await;
+
+            // Retrieve the message value for the requested message.
+            let msg_seq = db.get_latest_seq(&feed_id.pub_key.to_string())?;
+            if let Some(msg_seq) = msg_seq {
+                // Retrieve the message KVT for the requested message using the
+                // author and sequence fields from the message value.
+                let msg_kvt = db.get_msg_kvt(&feed_id.pub_key, msg_seq)?;
+                let response = json!(msg_kvt);
+                Ok(response)
+            } else {
+                // we didn't find the feed locally, but this doesn't constitute an error
+                Ok(json!(r#"{"seq": null}"#))
+            }
+        })
+    });
+
     // Return the public key and latest sequence number for all feeds in the
     // local database.
     io.add_sync_method("peers", |_| {
