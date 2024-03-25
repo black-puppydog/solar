@@ -161,7 +161,7 @@ impl TryFrom<Cli> for ApplicationConfig {
         // Set defaults if options have not been provided.
         let database_cache_capacity = cli_args.database_cache_capacity.unwrap_or(1_000_000_000);
         let ip = cli_args.ip.unwrap_or("0.0.0.0".to_string());
-        let port = cli_args.port.unwrap_or(8008);
+        let port = cli_args.port.unwrap_or(8009);
         let lan_discovery = cli_args.lan.unwrap_or(false);
         let jsonrpc = cli_args.jsonrpc.unwrap_or(true);
         let jsonrpc_ip = cli_args.jsonrpc_ip.unwrap_or("127.0.0.1".to_string());

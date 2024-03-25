@@ -29,7 +29,7 @@ impl Default for NetworkConfig {
             key: discovery::ssb_net_id(),
             lan_discovery: false,
             ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            port: 8008,
+            port: 8009,
         }
     }
 }
