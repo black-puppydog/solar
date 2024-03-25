@@ -84,6 +84,9 @@ impl ApplicationConfig {
         config.database = config.database.path(feeds_path);
         config.replication = ReplicationConfig::return_or_create_file(&base_path)?;
         config.secret = SecretConfig::return_or_create_file(&base_path)?;
+        config.network.lan_discovery = true;
+        // TODO
+        // config.network = NetworkConfig::return_or_create_file(&base_path)?;
         config.base_path = Some(base_path);
 
         // Add @-prefix to all peer IDs. This is required for successful
@@ -107,4 +110,26 @@ impl ApplicationConfig {
 
         Ok(config)
     }
+
+    // fn return_or_create_file(base_path: &Path) -> Result<ApplicationConfig> {
+    //     // Define the filename of the secret config file.
+    //     let secret_key_file = base_path.join("secret.toml");
+
+    //     if !secret_key_file.is_file() {
+    //         println!("Private key not found, generated new one in {secret_key_file:?}");
+    //         let config = SecretConfig::create();
+    //         let toml_config = config.to_toml()?;
+
+    //         let mut file = File::create(&secret_key_file)?;
+    //         write!(file, "{}", toml_config)?;
+
+    //         Ok(config)
+    //     } else {
+    //         // If the config file exists, open it and read the contents.
+    //         let mut file = File::open(&secret_key_file)?;
+    //         let mut file_contents = String::new();
+    //         file.read_to_string(&mut file_contents)?;
+    //         SecretConfig::from_toml(&file_contents)
+    //     }
+    // }
 }

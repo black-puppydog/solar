@@ -17,4 +17,4 @@ pub use actors::network::config::NetworkConfig;
 pub use actors::replication::config::ReplicationConfig;
 pub use config::ApplicationConfig;
 pub use error::Error;
-pub use node::Node;
+pub use node::{Node, KV_STORE};

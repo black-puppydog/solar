@@ -66,6 +66,12 @@ pub enum Error {
 
 impl std::error::Error for Error {}
 
+impl Into<String> for Error {
+    fn into(self) -> String {
+        format!("{}", self)
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
