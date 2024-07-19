@@ -555,29 +555,29 @@ mod test {
     use crate::secret_config::SecretConfig;
     use crate::storage::kv::KvStorage;
 
-    fn open_temporary_kv() -> Result<KvStorage> {
+    async fn open_temporary_kv() -> Result<KvStorage> {
         let mut kv = KvStorage::default();
         let (sender, _) = futures::channel::mpsc::unbounded();
         let path = tempdir::TempDir::new("solardb")?;
         let config = Config::new().path(path.path());
-        kv.open(config, sender)?;
+        kv.open(config, sender).await?;
 
         Ok(kv)
     }
 
-    fn initialise_keypair_and_kv() -> Result<(OwnedIdentity, KvStorage)> {
+    async fn initialise_keypair_and_kv() -> Result<(OwnedIdentity, KvStorage)> {
         // Create a unique keypair to sign messages.
         let keypair = SecretConfig::create().to_owned_identity()?;
 
         // Open a temporary key-value store.
-        let kv = open_temporary_kv()?;
+        let kv = open_temporary_kv().await?;
 
         Ok((keypair, kv))
     }
 
     #[async_std::test]
     async fn test_about_indexes() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
 
         if let Some(indexes) = kv.indexes.as_ref() {
             let first_name = "mycognosist".to_string();
@@ -650,7 +650,7 @@ mod test {
 
     #[async_std::test]
     async fn test_channel_indexes() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
 
         if let Some(indexes) = kv.indexes.as_ref() {
             let channel = "myco".to_string();
@@ -698,7 +698,7 @@ mod test {
 
     #[async_std::test]
     async fn test_contact_indexes() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
         let blocked_keypair = SecretConfig::create().to_owned_identity()?;
 
         if let Some(indexes) = kv.indexes.as_ref() {

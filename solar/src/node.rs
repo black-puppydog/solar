@@ -38,7 +38,8 @@ impl Node {
         KV_STORE
             .write()
             .await
-            .open(config.database, BROKER.lock().await.create_sender())?;
+            .open(config.database, BROKER.lock().await.create_sender())
+            .await?;
 
         // Define the directory name for the blob store.
         let blobs_path = config

@@ -1,6 +1,8 @@
+use std::io::Read;
+
 use futures::SinkExt;
 use kuska_ssb::feed::{Feed as MessageKvt, Message as MessageValue};
-use log::{debug, warn};
+use log::{debug, log, warn};
 use serde::{Deserialize, Serialize};
 use sled::{Config as DbConfig, Db};
 
@@ -12,6 +14,7 @@ use crate::{
 };
 
 // TODO: Consider replacing prefix-based approach with separate db trees.
+
 /// Prefix for a key to the latest sequence number for a stored feed.
 const PREFIX_LATEST_SEQ: u8 = 0u8;
 /// Prefix for a key to a message KVT (Key Value Timestamp).
@@ -22,6 +25,9 @@ const PREFIX_MSG_VAL: u8 = 2u8;
 const PREFIX_BLOB: u8 = 3u8;
 /// Prefix for a key to a peer.
 const PREFIX_PEER: u8 = 4u8;
+
+/// Unique key in which the latest sequence number in the global order is stored.
+const GLOBAL_ORDER_KEY: &'static str = "solar:global_seq";
 
 /// A new message has been appended to feed belonging to the given SSB ID.
 #[derive(Debug, Clone)]
@@ -54,17 +60,42 @@ pub struct KvStorage {
     ch_broker: Option<ChBrokerSend>,
 }
 
+fn buffer_to_u64(buffer: &[u8]) -> u64 {
+    let mut array = [0u8; 8];
+    array.copy_from_slice(buffer);
+    u64::from_be_bytes(array)
+}
+
 impl KvStorage {
     /// Open the key-value database using the given configuration, open the
     /// database index trees and populate the instance of `KvStorage`
     /// with the database, indexes and message-passing sender.
-    pub fn open(&mut self, config: DbConfig, ch_broker: ChBrokerSend) -> Result<()> {
+    pub async fn open(&mut self, config: DbConfig, ch_broker: ChBrokerSend) -> Result<()> {
+        println!("Opening KvStorage");
         let db = config.open()?;
         let indexes = Indexes::open(&db)?;
 
         self.db = Some(db);
         self.indexes = Some(indexes);
         self.ch_broker = Some(ch_broker);
+
+        // check if the global_order key exists and is equal to 1u8
+        let db = self.db.as_ref().ok_or(Error::OptionIsNone)?;
+        let global_order_seq = self.get_global_order_seq().await?;
+
+        if global_order_seq == 0u64 {
+            // build the global order index
+            self.build_global_order_index().await?;
+            // set the solar:global_order flag so we don't re-do this
+            // TODO: re-enable once we have a way to reset the global order
+            db.insert("solar:global_order".as_bytes(), 1u8.to_be_bytes().to_vec())?;
+        } else {
+            log!(
+                log::Level::Info,
+                "global_order_exists: {}",
+                global_order_seq
+            );
+        }
 
         Ok(())
     }
@@ -155,16 +186,13 @@ impl KvStorage {
         let db = self.db.as_ref().ok_or(Error::OptionIsNone)?;
         let key = Self::key_latest_seq(user_id);
         let seq = if let Some(value) = db.get(key)? {
-            let mut u64_buffer = [0u8; 8];
-            u64_buffer.copy_from_slice(&value);
-            Some(u64::from_be_bytes(u64_buffer))
+            Some(buffer_to_u64(&value))
         } else {
             None
         };
 
         Ok(seq)
     }
-
     /// Get the message KVT (Key Value Timestamp) for the given author and
     /// message sequence number.
     pub fn get_msg_kvt(&self, user_id: &str, msg_seq: u64) -> Result<Option<MessageKvt>> {
@@ -259,9 +287,11 @@ impl KvStorage {
             pub_key: author.clone(),
             seq_num,
         })?;
+
         db.insert(Self::key_msg_val(&msg_val.id().to_string()), msg_ref)?;
 
         let mut msg_kvt = MessageKvt::new(msg_val.clone());
+        self.increment_global_seq(&msg_kvt.key).await?;
         msg_kvt.rts = None;
         db.insert(
             Self::key_msg_kvt(&author, seq_num),
@@ -326,6 +356,77 @@ impl KvStorage {
 
         Ok(feed)
     }
+
+    /// Builds the global order index of all messages.
+    /// When embedding solar, or using the RPC methods, we sometimes need
+    /// to be able to iterate over all messages in the database in any
+    //// (semantically useful) order.
+    /// That means that this index will return messages within the same feed in-order,
+    /// but the order of feeds is not guaranteed, and neither is the order of messages between feeds.
+    /// I.e. this may assign sequence number N to a message A that references message B with sequence number N+M.
+    async fn build_global_order_index(&self) -> Result<()> {
+        // we'll simply iterate over all feeds in the database
+        // and assign a global sequence number to each message
+        // in the feed in order of their sequence number.
+        let db = self.db.as_ref().ok_or(Error::OptionIsNone)?;
+        // first make sure we start from global order sequence number 1
+        // To do so, simply delete the global_order_seq key.
+        db.remove(GLOBAL_ORDER_KEY.as_bytes().to_vec())?;
+        for peer in self
+            .get_peers()
+            .await
+            .map_err(|_| Error::Indexes)?
+            .into_iter()
+        {
+            let (pub_key, latest_seq) = peer;
+            for msg_seq in 1..=latest_seq {
+                // Get the message KVT for the given author and message
+                // sequence number and add it to the feed vector.
+                let msg = self
+                    .get_msg_kvt(&pub_key, msg_seq)?
+                    .ok_or(Error::OptionIsNone)?;
+                self.increment_global_seq(&msg.key).await?;
+            }
+        }
+        log!(
+            log::Level::Info,
+            "Built global order index with {} messages",
+            self.get_global_order_seq().await?
+        );
+        Ok(())
+    }
+
+    /// Get the last global order sequence number for the given message key.
+    /// Returns 0 if no global order sequence number is found.
+    async fn get_global_order_seq(&self) -> Result<u64> {
+        let db = self.db.as_ref().ok_or(Error::OptionIsNone)?;
+        let global_seq = db.get(GLOBAL_ORDER_KEY.as_bytes().to_vec())?;
+        if let Some(global_seq) = global_seq {
+            Ok(buffer_to_u64(&global_seq))
+        } else {
+            Ok(0)
+        }
+    }
+
+    async fn increment_global_seq(&self, msg_key: &str) -> Result<()> {
+        let new_global_seq = self.get_global_order_seq().await? + 1;
+        let db = self.db.as_ref().ok_or(Error::OptionIsNone)?;
+        db.insert(
+            format!("global_seq:{}", new_global_seq).as_bytes().to_vec(),
+            msg_key.as_bytes().to_vec(),
+        )?;
+        // inverted index for global sequence number.
+        // we use "global_seq:{msg_ref}" as the key, and the global sequence number as the value.
+        db.insert(
+            format!("gloabl_seq:{}", msg_key).as_bytes().to_vec(),
+            new_global_seq.to_be_bytes().to_vec(),
+        )?;
+        db.insert(
+            GLOBAL_ORDER_KEY.as_bytes().to_vec(),
+            new_global_seq.to_be_bytes().to_vec(),
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -338,12 +439,13 @@ mod test {
 
     use crate::secret_config::SecretConfig;
 
-    fn open_temporary_kv() -> Result<KvStorage> {
+    #[async_std::test]
+    async fn open_temporary_kv() -> Result<KvStorage> {
         let mut kv = KvStorage::default();
         let (sender, _) = futures::channel::mpsc::unbounded();
         let path = tempdir::TempDir::new("solardb").unwrap();
         let config = Config::new().path(path.path());
-        kv.open(config, sender).unwrap();
+        kv.open(config, sender).await.unwrap();
 
         Ok(kv)
     }
