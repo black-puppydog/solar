@@ -439,7 +439,6 @@ mod test {
 
     use crate::secret_config::SecretConfig;
 
-    #[async_std::test]
     async fn open_temporary_kv() -> Result<KvStorage> {
         let mut kv = KvStorage::default();
         let (sender, _) = futures::channel::mpsc::unbounded();
@@ -450,12 +449,12 @@ mod test {
         Ok(kv)
     }
 
-    fn initialise_keypair_and_kv() -> Result<(OwnedIdentity, KvStorage)> {
+    async fn initialise_keypair_and_kv() -> Result<(OwnedIdentity, KvStorage)> {
         // Create a unique keypair to sign messages.
         let keypair = SecretConfig::create().to_owned_identity()?;
 
         // Open a temporary key-value store.
-        let kv = open_temporary_kv()?;
+        let kv = open_temporary_kv().await?;
 
         Ok((keypair, kv))
     }
@@ -464,7 +463,7 @@ mod test {
     async fn test_feed_length() -> Result<()> {
         use kuska_ssb::feed::Message;
 
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
 
         let mut last_msg: Option<Message> = None;
         for i in 1..=4 {
@@ -492,7 +491,7 @@ mod test {
 
     #[async_std::test]
     async fn test_single_message_content_matches() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
 
         // Create a post-type message.
         let msg_content = TypedMessage::Post {
@@ -524,7 +523,7 @@ mod test {
 
     #[async_std::test]
     async fn test_new_feed_is_empty() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
 
         // Lookup the value of the previous message. This will be `None`
         let last_msg = kv.get_latest_msg_val(&keypair.id)?;
@@ -538,7 +537,7 @@ mod test {
 
     #[async_std::test]
     async fn test_peer_range_query() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
         // Get a list of all replicated peers and their latest sequence
         // numbers. This list is expected to be empty because we never
         // added any data to the database.
@@ -605,7 +604,7 @@ mod test {
     // it with messages). Perhaps this could be broken up in the future.
     #[async_std::test]
     async fn test_append_feed() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
 
         // Create a post-type message.
         let msg_content = TypedMessage::Post {
@@ -685,7 +684,7 @@ mod test {
 
     #[async_std::test]
     async fn test_blobs_range_query_when_peers_exist() -> Result<()> {
-        let (keypair, kv) = initialise_keypair_and_kv()?;
+        let (keypair, kv) = initialise_keypair_and_kv().await?;
         kv.set_blob(
             "b1",
             &BlobStatus {
@@ -730,9 +729,9 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_blobs() -> Result<()> {
-        let kv = open_temporary_kv()?;
+    #[async_std::test]
+    async fn test_blobs() -> Result<()> {
+        let kv = open_temporary_kv().await?;
 
         assert!(kv.get_blob("1")?.is_none());
 
