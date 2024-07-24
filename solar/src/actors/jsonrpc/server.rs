@@ -514,6 +514,20 @@ pub async fn actor(server_id: OwnedIdentity, server_addr: SocketAddr) -> Result<
     // Return the public key of the local SSB server.
     rpc_module.register_method("whoami", move |_, _| local_pk.clone())?;
 
+    rpc_module.register_method("global_sequence", move |_, _| {
+        task::block_on(async {
+            let seq = KV_STORE
+                .as_ref()
+                .read()
+                .await
+                .get_global_order_seq()
+                .await?;
+            let response = json!(seq);
+
+            Ok::<Value, JsonRpcError>(response)
+        })
+    })?;
+
     let addr = server.local_addr()?;
     let handle = server.start(rpc_module)?;
     info!("JSON-RPC server started on: {}", addr);

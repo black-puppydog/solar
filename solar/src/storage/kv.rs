@@ -398,7 +398,7 @@ impl KvStorage {
 
     /// Get the last global order sequence number for the given message key.
     /// Returns 0 if no global order sequence number is found.
-    async fn get_global_order_seq(&self) -> Result<u64> {
+    pub async fn get_global_order_seq(&self) -> Result<u64> {
         let db = self.db.as_ref().ok_or(Error::OptionIsNone)?;
         let global_seq = db.get(GLOBAL_ORDER_KEY.as_bytes().to_vec())?;
         if let Some(global_seq) = global_seq {
